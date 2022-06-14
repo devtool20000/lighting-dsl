@@ -215,6 +215,8 @@ export class Arg {
         } else {
           newParameters.push([d, v]);
         }
+      } else {
+        newParameters.push([d, v]);
       }
     }
 
@@ -395,7 +397,6 @@ export class ArgParser {
     while (this.isNotEnd) {
       this.matchParameter();
     }
-
     return new Arg(this.name, this.parameters);
   }
 }

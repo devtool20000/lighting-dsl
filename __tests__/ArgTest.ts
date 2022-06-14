@@ -65,6 +65,12 @@ describe("test Arg", () => {
     expect(arg.parameters).toStrictEqual([[".","x"],[".","b"]])
   }) 
 
+  test("replace with multi delimiter",()=>{
+    const arg = new Arg("name",[[".","a"],[".","b"],[":","content"]])
+    arg.replace("a","x")
+    expect(arg.parameters).toStrictEqual([[".","x"],[".","b"],[":","content"]])
+  }) 
+
   test("replace with string[]",()=>{
     const arg = new Arg("name",[[".","a"],[".","b"]])
     arg.replace("a",["c","d"])
