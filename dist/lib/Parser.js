@@ -164,6 +164,9 @@ class Arg {
                     newParameters.push([d, v]);
                 }
             }
+            else {
+                newParameters.push([d, v]);
+            }
         }
         this.parameters = newParameters;
     }
