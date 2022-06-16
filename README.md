@@ -4,5 +4,6 @@
 * [done] convert arg to string
   * [done] make sure quote is added for both paramters and name
 * support multiple line parse (just replace all \n to white space)
+* [!] When return Node, always recursively set the parent correct
 
 

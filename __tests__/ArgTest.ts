@@ -1,4 +1,4 @@
-import { Arg } from "../lib/Parser";
+import { Arg, parse } from "../lib/Parser";
 
 describe("test Arg", () => {
 
@@ -166,6 +166,14 @@ describe("test Arg", () => {
       expect(arg1.name).toBe("new")
       expect(arg2.name).toBe("test")
       expect(arg3.name).toBe("article")
+    })
+  })
+
+  describe('rewrite', ()=> { 
+    test('rewrite whole arg', ()=> { 
+      const arg = new Arg("name.class",[])
+      arg.rewrite("changed.changed")
+      expect(arg.toText()).toBe("changed.changed")
     })
   })
   

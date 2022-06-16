@@ -65,50 +65,50 @@ describe('Test on tailwind parsing', ()=> {
   describe('expand Common Tailwind ClassName', ()=> { 
     test('expand font weight', ()=> { 
       const text = "t.tw++"
-      const arg = parseOne(text).parseArg()
+      const arg = parseOne(text).arg
       expandCommonTailWindClassName(arg)
       expect(arg.toText()).toBe("t.font-semibold")
     })
 
     test('expand font weight', ()=> { 
       const text = "t.tw--"
-      const arg = parseOne(text).parseArg()
+      const arg = parseOne(text).arg
       expandCommonTailWindClassName(arg)
       expect(arg.toText()).toBe("t.font-extralight")
     })
 
     test('expand font size', ()=> { 
       const text = "t.ts++"
-      const arg = parseOne(text).parseArg()
+      const arg = parseOne(text).arg
       expandCommonTailWindClassName(arg)
       expect(arg.toText()).toBe("t.text-xl")
     })
 
     test('expand round corner', ()=> { 
       const text = "t.rdf"
-      const arg = parseOne(text).parseArg()
+      const arg = parseOne(text).arg
       expandCommonTailWindClassName(arg)
       expect(arg.toText()).toBe("t.rounded-full")
     })
 
     test('expand round corner small', ()=> { 
       const text = "t.rd-"
-      const arg = parseOne(text).parseArg()
+      const arg = parseOne(text).arg
       expandCommonTailWindClassName(arg)
       expect(arg.toText()).toBe("t.rounded-sm")
     })
     
     test('expand shadow', ()=> { 
       const text = "t.sd"
-      const arg = parseOne(text).parseArg()
+      const arg = parseOne(text).arg
       expandCommonTailWindClassName(arg)
       expect(arg.toText()).toBe("t.drop-shadow")
     })
   })
 
   function parseFlexContianer(text:string) : {tag:string,classNames:string[],children:string[]} {
-    const [container, ...children] = parse(text)
-    const containerArg = container.parseArg()
+    const [container, ...children] = parse(text).children
+    const containerArg = container.arg
     let classNames = ["flex"]
 
     if(containerArg.name === "r") {
@@ -234,7 +234,7 @@ describe('Test on tailwind parsing', ()=> {
 
   test('space in row', ()=> { 
     const text = "r -- t"
-    expect(parse(text)[1].parseArg().name).toStrictEqual("--")
+    expect(parse(text).children[1].arg.name).toStrictEqual("--")
   })
 
   
