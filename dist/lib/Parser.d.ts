@@ -1,26 +1,51 @@
+export declare const DEFAULT_OPTIONS: ParseOptions;
 export declare type Replacer = string | string[] | ((value: string) => string | string[]);
 export declare type NameReplacer = string | ((value: string) => string);
-export declare function parse(text: string, options?: Partial<ParseOptions>): Node[];
+export declare type ArgApplyFn = (arg: Arg) => void;
+export declare type ArgSelectorFn = (arg: Arg) => boolean;
+export declare type ArgSelector = ArgSelectorFn | string;
+export declare function parse(text: string, options?: Partial<ParseOptions>): Node;
+export declare function _recursiveUpdateParentToArg(node: Node): Node;
 export declare function parseOne(text: string, options?: Partial<ParseOptions>): Node;
 export interface ParseOptions {
     childrenStart: string;
     childrenEnd: string;
     quoteStart: string;
     quoteEnd: string;
+    delimiters: string[];
 }
+export declare function concat(...nodes: (string | Node)[]): Node;
 export declare class Node {
-    text: string;
+    private _children;
+    private _arg;
     isNested: boolean;
-    private options;
-    constructor(text: string, isNested: boolean, options: ParseOptions);
+    options: ParseOptions;
+    get text(): string;
+    constructor();
+    static fromText(text: string, isNested: boolean, options: ParseOptions): Node;
+    static fromParameters(arg: Arg | null, children: Node[], isNested: boolean, options: ParseOptions, isClone?: boolean): Node;
     get children(): Node[];
-    parseArg(delimiters?: string[]): Arg;
+    get arg(): Arg;
+    private _parseArg;
+    apply(...fns: ArgApplyFn[]): Node;
+    applyAll(...fns: ArgApplyFn[]): Node;
+    applyFirst(...fns: ArgApplyFn[]): Node;
+    applyRest(...fns: ArgApplyFn[]): Node;
+    split(): [Node, Node];
+    push(...texts: (string | Node)[]): Node;
+    unshift(...texts: (string | Node)[]): Node;
+    remove(...selectors: ArgSelector[]): void;
+    removeAll(...selectors: ArgSelector[]): void;
+    selectAll(selector: ArgSelector): Node;
+    clone(): Node;
 }
 export declare class Arg {
     name: string;
     parameters: [string, string][];
     options: ArgOptions;
+    parent: Node;
     constructor(name: string, parameters: [string, string][], options?: ArgOptions);
+    rewrite(text: string): void;
     clone(): Arg;
     add(value: string, delimiter?: string): void;
     addIfNotExists(value: string, delimiter?: string): void;
@@ -36,6 +61,8 @@ export declare class Arg {
     one(delimiter?: string): string | null;
     toText(): string;
     private _wrapAsStrng;
+    equals(arg: string | Arg, isStrict?: boolean): boolean;
+    contains(arg: string | Arg | ArgSelectorFn): boolean;
 }
 export interface ArgOptions {
     delimiters: string[];
