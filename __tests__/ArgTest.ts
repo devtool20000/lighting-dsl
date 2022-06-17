@@ -1,4 +1,4 @@
-import { Arg, parse } from "../lib/Parser";
+import { Arg, ArgParser, parse } from "../lib/Parser";
 
 describe("test Arg", () => {
 
@@ -174,6 +174,57 @@ describe("test Arg", () => {
       const arg = new Arg("name.class",[])
       arg.rewrite("changed.changed")
       expect(arg.toText()).toBe("changed.changed")
+    })
+  })
+
+  describe('equals', ()=> { 
+    test('equals string non strict', ()=> { 
+      const arg = new ArgParser("name.class1.class2").parse()
+      
+      expect(arg.equals("name.class1.class2")).toBe(true)
+      expect(arg.equals("name.class2.class1")).toBe(true)
+      expect(arg.equals("name.class2")).not.toBe(true)
+      expect(arg.equals("name1.class")).not.toBe(true)
+    })
+
+    test('equals arg non strict', ()=> { 
+      const arg = new ArgParser("name.class1.class2").parse()
+      
+      
+      expect(arg.equals(new ArgParser("name.class1.class2").parse())).toBe(true)
+      expect(arg.equals(new ArgParser("name.class2.class1").parse())).toBe(true)
+      expect(arg.equals(new ArgParser("name.class1").parse())).not.toBe(true)
+      expect(arg.equals(new ArgParser("name1.class1.class2").parse())).not.toBe(true)
+    })
+
+    test('equals string strict', ()=> { 
+      const arg = new ArgParser("name.class1.class2").parse()
+      
+      expect(arg.equals("name.class1.class2",true)).toBe(true)
+      expect(arg.equals("name.class2.class1",true)).not.toBe(true)
+      expect(arg.equals("name.class2",true)).not.toBe(true)
+      expect(arg.equals("name1.class",true)).not.toBe(true)
+    })
+  })
+
+  describe('contains', ()=> { 
+    test('should contains', ()=> { 
+      const arg = new ArgParser("name.class1.class2").parse()
+      
+      expect(arg.contains("name.class1.class2")).toBe(true)
+      expect(arg.contains("name.class1")).toBe(true)
+      expect(arg.contains("name.class2")).toBe(true)
+      expect(arg.contains("name")).toBe(true)
+      
+    })
+
+    test('should not contains', ()=> { 
+      const arg = new ArgParser("name.class1.class2").parse()
+      
+      expect(arg.contains("name.class3")).not.toBe(true)
+      expect(arg.contains("name1")).not.toBe(true)
+      expect(arg.contains("name1.class2")).not.toBe(true)
+      
     })
   })
   

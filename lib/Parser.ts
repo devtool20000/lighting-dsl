@@ -2,7 +2,7 @@ const WHITESPACE_CHARS = new Set([" ", "\t"]);
 const MATCH_EXPAND_NAME_PATTEN = /^([a-zA-Z0-9\-]+)?/;
 
 const DEFAULT_DELIMITERS = [".", ":", "@"];
-const DEFAULT_OPTIONS: ParseOptions = {
+export const DEFAULT_OPTIONS: ParseOptions = {
   childrenStart: "{",
   childrenEnd: "}",
   quoteStart: "`",
@@ -17,6 +17,8 @@ export type Replacer =
 
 export type NameReplacer = string | ((value: string) => string);
 export type ArgApplyFn = (arg: Arg) => void;
+export type ArgSelectorFn = (arg: Arg) => boolean;
+export type ArgSelector = ArgSelectorFn | string;
 
 export function parse(text: string, options: Partial<ParseOptions> = {}): Node {
   options.childrenStart = options.childrenStart || "{";
@@ -25,23 +27,22 @@ export function parse(text: string, options: Partial<ParseOptions> = {}): Node {
   options.quoteEnd = options.quoteEnd || "`";
   options.delimiters = DEFAULT_DELIMITERS;
   const result = Node.fromText(text, true, options as ParseOptions);
-  _recursiveUpdateParentToArg(result)
-  return result
+  _recursiveUpdateParentToArg(result);
+  return result;
 }
 
-function _recursiveUpdateParentToArg(node:Node) : Node {
-  if(node.isNested) {
+export function _recursiveUpdateParentToArg(node: Node): Node {
+  if (node.isNested) {
     for (const child of node.children) {
-      if(!child.isNested) {
-        child.arg.parent = node
-      }
-      else {
-        _recursiveUpdateParentToArg(child)
+      if (!child.isNested) {
+        child.arg.parent = node;
+      } else {
+        _recursiveUpdateParentToArg(child);
       }
     }
   }
 
-  return node
+  return node;
 }
 
 export function parseOne(
@@ -57,6 +58,35 @@ export interface ParseOptions {
   quoteStart: string;
   quoteEnd: string;
   delimiters: string[];
+}
+
+// concat nodes to merge into a new node
+// for nested nodes, it will spread and merge together so concat("a", "b c", "d") will return "a b c d"
+export function concat(...nodes: (string | Node)[]): Node {
+  let options = DEFAULT_OPTIONS;
+  for (const node of nodes) {
+    if (node instanceof Node) {
+      options = node.options;
+    }
+  }
+  const compiledNodes = nodes.map((node) => {
+    if (typeof node === "string") {
+      return parse(node, options);
+    } else if (node instanceof Node) {
+      return node;
+    } else {
+      throw new Error("node can only accept string and Node");
+    }
+  });
+  const result = Node.fromParameters(null, [], true, options);
+  for (const node of compiledNodes) {
+    if (node.isNested) {
+      result.push(...node.children);
+    } else {
+      result.push(node);
+    }
+  }
+  return _recursiveUpdateParentToArg(result);
 }
 
 export class Node {
@@ -90,7 +120,6 @@ export class Node {
     if (isNested) {
       const parser = new NodeParser(options, text);
       node._children = parser.parse();
-
     } else {
       node._arg = node._parseArg(text, node.options.delimiters);
     }
@@ -102,16 +131,17 @@ export class Node {
     arg: Arg | null,
     children: Node[],
     isNested: boolean,
-    options: ParseOptions
+    options: ParseOptions,
+    isClone:boolean = true
   ): Node {
     const node = new Node();
     node.isNested = isNested;
     node.options = options;
 
     if (isNested) {
-      node._children = children.map((node) => node.clone());
+      node._children = children.map((node) => isClone ? node.clone() : node);
     } else {
-      node._arg = arg ? arg.clone() : null;
+      node._arg = arg ? (isClone ? arg.clone() : arg) : null;
     }
     return node;
   }
@@ -141,7 +171,6 @@ export class Node {
       ...this.options,
       delimiters,
     }).parse();
-    // arg.parent = this.parent!;
     return arg;
   }
 
@@ -150,25 +179,25 @@ export class Node {
   apply(...fns: ArgApplyFn[]): Node {
     for (const fn of fns) {
       if (this.isNested) {
-        this.children.forEach((node) => node.applyFirst(fn));
+        [...this.children].forEach((node) => node.applyFirst(fn));
       } else {
         this.applyFirst(fn);
       }
     }
 
-    return this;
+    return _recursiveUpdateParentToArg(this);
   }
 
   // recursively apply to all elements
   applyAll(...fns: ArgApplyFn[]): Node {
     for (const fn of fns) {
       if (this.isNested) {
-        this.children.forEach((node) => node.applyAll(fn));
+        [...this.children].forEach((node) => node.applyAll(fn));
       } else {
         this.applyFirst(fn);
       }
     }
-    return this;
+    return _recursiveUpdateParentToArg(this);
   }
 
   applyFirst(...fns: ArgApplyFn[]): Node {
@@ -180,7 +209,7 @@ export class Node {
       }
     }
 
-    return this;
+    return _recursiveUpdateParentToArg(this);
   }
 
   // apply to direct children except the first, if nested appear, apply to the first arg of the children
@@ -190,18 +219,16 @@ export class Node {
         this.children.slice(1).forEach((node) => node.applyFirst(fn));
       }
     }
-    return this;
+    return _recursiveUpdateParentToArg(this);
   }
 
   split(): [Node, Node] {
     const [firstNode, ...restNodes] = this._children;
-    const restNode = Node.fromParameters(
-      null,
-      restNodes,
-      true,
-      this.options
-    );
-    return [_recursiveUpdateParentToArg(firstNode.clone()), _recursiveUpdateParentToArg(restNode)];
+    const restNode = Node.fromParameters(null, restNodes, true, this.options);
+    return [
+      _recursiveUpdateParentToArg(firstNode.clone()),
+      _recursiveUpdateParentToArg(restNode),
+    ];
   }
 
   push(...texts: (string | Node)[]): Node {
@@ -234,47 +261,178 @@ export class Node {
     return _recursiveUpdateParentToArg(this);
   }
 
-  // TODO: remove (by filter) new elements from node
-  // TODO: select elements recursively (selector api, try to find all input)
+  remove(...selectors: ArgSelector[]) {
+    this.apply(
+      ...selectors.map((selector) => (arg: Arg) => {
+        let _selector: ArgSelectorFn =
+          typeof selector === "string"
+            ? (arg: Arg) => arg.equals(selector)
+            : selector;
+        if (_selector(arg)) {
+          const index = arg.parent._children.findIndex(
+            (node) => node._arg === arg
+          );
+          if (index !== -1) {
+            arg.parent._children.splice(index, 1);
+          }
+        }
+      })
+    );
+  }
 
+  removeAll(...selectors: ArgSelector[]) {
+    this.applyAll(
+      ...selectors.map((selector) => (arg: Arg) => {
+        let _selector: ArgSelectorFn =
+          typeof selector === "string"
+            ? (arg: Arg) => arg.equals(selector)
+            : selector;
+        if (_selector(arg)) {
+          const index = arg.parent._children.findIndex(
+            (node) => node._arg === arg
+          );
+          if (index !== -1) {
+            arg.parent._children.splice(index, 1);
+          }
+        }
+      })
+    );
+  }
+
+
+  selectAll(selector: ArgSelector): Node {
+    const nodes: Node[] = [];
+    this.applyAll((arg) => {
+      if (arg.contains(selector)) {
+        // TODO: bad implementation here (find the arg each time from parent) for performance, can improve it later
+        const child = arg.parent._children.find(x=>x._arg === arg)!
+        nodes.push(child);
+      }
+    });
+    return Node.fromParameters(null, nodes, true, this.options,false);
+  }
+
+
+  // use this with selector
   clone(): Node {
     const node = new Node();
-    return _recursiveUpdateParentToArg(Node.fromParameters(
-      this._arg ? this._arg.clone() : null,
-      this._children.map((node) => node.clone()),
-      this.isNested,
-      this.options
-    ));
+    return _recursiveUpdateParentToArg(
+      Node.fromParameters(
+        this._arg ? this._arg.clone() : null,
+        this._children.map((node) => node.clone()),
+        this.isNested,
+        this.options
+      )
+    );
   }
+
 }
 
-// concat nodes to merge into a new node
-// for nested nodes, it will spread and merge together so concat("a", "b c", "d") will return "a b c d"
-export function concat(...nodes: (string | Node)[]): Node {
-  let options = DEFAULT_OPTIONS;
-  for (const node of nodes) {
-    if (node instanceof Node) {
-      options = node.options;
+class NodeParser {
+  private cursor: number = 0;
+  private totalLength: number = -1;
+  private nodes: Node[] = [];
+
+  get isNotEnd() {
+    return this.cursor < this.totalLength;
+  }
+
+  constructor(private options: ParseOptions, private text: string) {
+    this.text = text.trim();
+    this.totalLength = this.text.length;
+  }
+
+  parse(): Node[] {
+    while (this.isNotEnd) {
+      if (this.text[this.cursor] === this.options.childrenStart) {
+        this.cursor++;
+        this.matchChildren();
+      } else {
+        this.matchLeafNode();
+      }
+      this.matchWhiteSpace();
+    }
+    return this.nodes;
+  }
+
+  matchLeafNode() {
+    const startIndex = this.cursor;
+
+    while (this.isNotEnd) {
+      const char = this.text[this.cursor];
+      if (this.options.quoteStart === char) {
+        this.cursor++;
+        this.matchString();
+      } else if (WHITESPACE_CHARS.has(char)) {
+        break;
+      } else {
+        this.cursor++;
+      }
+    }
+    this.nodes.push(
+      Node.fromText(
+        this.text.substring(startIndex, this.cursor),
+        false,
+        this.options
+      )
+    );
+  }
+  matchChildren() {
+    const startIndex = this.cursor;
+    let bracketCount = 1;
+    while (this.isNotEnd) {
+      const char = this.text[this.cursor];
+      if (char === this.options.childrenEnd) {
+        bracketCount -= 1;
+        if (bracketCount === 0) {
+          this.nodes.push(
+            Node.fromText(
+              this.text.substring(startIndex, this.cursor),
+              true,
+              this.options
+            )
+          );
+          this.cursor++;
+          return;
+        } else {
+          this.cursor++;
+        }
+      } else if (char === this.options.childrenStart) {
+        bracketCount++;
+        this.cursor++;
+      } else if (char === this.options.quoteStart) {
+        this.cursor++;
+        this.matchString();
+      } else {
+        this.cursor++;
+      }
+    }
+    throw new Error("nested children starts at ${startIndex} didn't complete");
+  }
+
+  matchString() {
+    const startIndex = this.cursor - 1;
+    while (this.cursor < this.totalLength) {
+      if (this.text[this.cursor] !== this.options.quoteEnd) {
+        this.cursor++;
+      } else {
+        this.cursor++;
+        return true;
+      }
+    }
+
+    throw new Error(`string starts at ${startIndex} didn't complete`);
+  }
+
+  matchWhiteSpace() {
+    while (this.cursor < this.totalLength) {
+      if (WHITESPACE_CHARS.has(this.text[this.cursor])) {
+        this.cursor++;
+      } else {
+        return;
+      }
     }
   }
-  const compiledNodes = nodes.map((node) => {
-    if (typeof node === "string") {
-      return parse(node, options);
-    } else if (node instanceof Node) {
-      return node;
-    } else {
-      throw new Error("node can only accept string and Node");
-    }
-  });
-  const result = Node.fromParameters(null, [], true, options);
-  for (const node of compiledNodes) {
-    if (node.isNested) {
-      result.push(...node.children);
-    } else {
-      result.push(node);
-    }
-  }
-  return _recursiveUpdateParentToArg(result);
 }
 
 export class Arg {
@@ -505,6 +663,70 @@ export class Arg {
       ? this.options.quoteStart + text + this.options.quoteEnd
       : text;
   }
+
+  public equals(arg: string | Arg, isStrict: boolean = false): boolean {
+    const targetArg: Arg =
+      typeof arg === "string" ? new ArgParser(arg, this.options).parse() : arg;
+    if (this.name !== targetArg.name) {
+      return false;
+    }
+
+    if (this.parameters.length !== targetArg.parameters.length) {
+      return false;
+    }
+    if (isStrict) {
+      // in strict mode, all parameters need to have the same sequence
+      for (let i = 0; i < this.parameters.length; i++) {
+        const param = this.parameters[i];
+        const targetParam = targetArg.parameters[i];
+        if (param[0] !== targetParam[0] || param[1] !== targetParam[1]) {
+          return false;
+        }
+      }
+      return true;
+    } else {
+      // in non strict mode, all parameters don't need to have the same sequence
+      for (const delimiter of this.options.delimiters) {
+        const params = new Set(this.all(delimiter));
+        const targetParams = targetArg.all(delimiter);
+        if (params.size !== targetParams.length) {
+          return false;
+        }
+        for (const targetParam of targetParams) {
+          if (!params.has(targetParam)) {
+            return false;
+          }
+        }
+      }
+
+      return true;
+    }
+  }
+
+  public contains(arg: string | Arg | ArgSelectorFn): boolean {
+    if(typeof arg === "function") {
+      return arg(this)
+    }
+
+    const targetArg: Arg =
+      typeof arg === "string" ? new ArgParser(arg, this.options).parse() : arg;
+    if (this.name !== targetArg.name) {
+      return false;
+    }
+
+    for (const delimiter of this.options.delimiters) {
+      const params = new Set(this.all(delimiter));
+      const targetParams = targetArg.all(delimiter);
+
+      for (const targetParam of targetParams) {
+        if (!params.has(targetParam)) {
+          return false;
+        }
+      }
+    }
+
+    return true;
+  }
 }
 
 export interface ArgOptions {
@@ -628,112 +850,5 @@ export class ArgParser {
       this.matchParameter();
     }
     return new Arg(this.name, this.parameters);
-  }
-}
-
-class NodeParser {
-  private cursor: number = 0;
-  private totalLength: number = -1;
-  private nodes: Node[] = [];
-
-  get isNotEnd() {
-    return this.cursor < this.totalLength;
-  }
-
-  constructor(private options: ParseOptions, private text: string) {
-    this.text = text.trim();
-    this.totalLength = this.text.length;
-  }
-
-  parse(): Node[] {
-    while (this.isNotEnd) {
-      if (this.text[this.cursor] === this.options.childrenStart) {
-        this.cursor++;
-        this.matchChildren();
-      } else {
-        this.matchLeafNode();
-      }
-      this.matchWhiteSpace();
-    }
-    return this.nodes;
-  }
-
-  matchLeafNode() {
-    const startIndex = this.cursor;
-
-    while (this.isNotEnd) {
-      const char = this.text[this.cursor];
-      if (this.options.quoteStart === char) {
-        this.cursor++;
-        this.matchString();
-      } else if (WHITESPACE_CHARS.has(char)) {
-        break;
-      } else {
-        this.cursor++;
-      }
-    }
-    this.nodes.push(
-      Node.fromText(
-        this.text.substring(startIndex, this.cursor),
-        false,
-        this.options
-      )
-    );
-  }
-  matchChildren() {
-    const startIndex = this.cursor;
-    let bracketCount = 1;
-    while (this.isNotEnd) {
-      const char = this.text[this.cursor];
-      if (char === this.options.childrenEnd) {
-        bracketCount -= 1;
-        if (bracketCount === 0) {
-          this.nodes.push(
-            Node.fromText(
-              this.text.substring(startIndex, this.cursor),
-              true,
-              this.options
-            )
-          );
-          this.cursor++;
-          return;
-        } else {
-          this.cursor++;
-        }
-      } else if (char === this.options.childrenStart) {
-        bracketCount++;
-        this.cursor++;
-      } else if (char === this.options.quoteStart) {
-        this.cursor++;
-        this.matchString();
-      } else {
-        this.cursor++;
-      }
-    }
-    throw new Error("nested children starts at ${startIndex} didn't complete");
-  }
-
-  matchString() {
-    const startIndex = this.cursor - 1;
-    while (this.cursor < this.totalLength) {
-      if (this.text[this.cursor] !== this.options.quoteEnd) {
-        this.cursor++;
-      } else {
-        this.cursor++;
-        return true;
-      }
-    }
-
-    throw new Error(`string starts at ${startIndex} didn't complete`);
-  }
-
-  matchWhiteSpace() {
-    while (this.cursor < this.totalLength) {
-      if (WHITESPACE_CHARS.has(this.text[this.cursor])) {
-        this.cursor++;
-      } else {
-        return;
-      }
-    }
   }
 }
